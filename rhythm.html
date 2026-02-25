@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VexFlow 随机节奏</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 30px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .hint {
+      color: #888;
+      font-size: 14px;
+      margin: 0 0 16px;
+    }
+
+    #btn-generate {
+      display: inline-block;
+      margin-bottom: 20px;
+      padding: 8px 20px;
+      font-size: 14px;
+      cursor: pointer;
+      background: #ff69b4;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+
+    #btn-generate:hover {
+      background: #e0559f;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .controls label {
+      font-size: 14px;
+      color: #555;
+    }
+
+    #input-measures {
+      width: 56px;
+      padding: 7px 10px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      text-align: center;
+      outline: none;
+    }
+
+    #input-measures:focus {
+      border-color: #ff69b4;
+    }
+
+    #output {
+      border: 1px solid #ff69b4;
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <h1>随机节奏练习 —— 4/4 拍</h1>
+  <p class="hint">音高固定为 C4 或休止符，节奏型随机生成（含附点与连音线）</p>
+  <div class="controls">
+    <label for="input-measures">小节数</label>
+    <input id="input-measures" type="number" min="1" max="16" value="4">
+    <button id="btn-generate">重新生成</button>
+  </div>
+  <div id="output"></div>
+
+  <!-- VexFlow 库 -->
+  <script src="https://cdn.jsdelivr.net/npm/vexflow@5.0.0/build/cjs/vexflow.js"></script>
+
+  <!-- 随机节奏生成与渲染 -->
+  <script>
+    const { Renderer, Stave, StaveNote, Voice, Formatter, StaveTie, Beam, Barline, Dot } = VexFlow;
+
+    // ─── 节奏型定义（以十六分音符单位计，4/4 拍 = 16 单位）────────────────────
+    // canRest: 附点音符不作休止符（VF5 中 'qdr'/'hdr' 渲染不稳定）
+    const PATTERNS = [
+      // 单音符（dots: 附点数量）
+      { total: 2,  tied: false, canRest: true,  seq: [{ dur: '8', dots: 0 }] },
+      { total: 4,  tied: false, canRest: true,  seq: [{ dur: 'q', dots: 0 }] },
+      { total: 6,  tied: false, canRest: false, seq: [{ dur: 'q', dots: 1 }] },  // 附点四分
+      { total: 8,  tied: false, canRest: true,  seq: [{ dur: 'h', dots: 0 }] },
+      { total: 12, tied: false, canRest: false, seq: [{ dur: 'h', dots: 1 }] },  // 附点二分
+
+      // 连音线（始终为音符）
+      { total: 4,  tied: true, canRest: false, seq: [{ dur: '8', dots: 0, tieNext: true }, { dur: '8', dots: 0 }] },  // 八 ~ 八
+      { total: 6,  tied: true, canRest: false, seq: [{ dur: 'q', dots: 0, tieNext: true }, { dur: '8', dots: 0 }] },  // 四 ~ 八
+      { total: 8,  tied: true, canRest: false, seq: [{ dur: 'q', dots: 0, tieNext: true }, { dur: 'q', dots: 0 }] },  // 四 ~ 四
+      { total: 10, tied: true, canRest: false, seq: [{ dur: 'h', dots: 0, tieNext: true }, { dur: '8', dots: 0 }] },  // 二 ~ 八
+      { total: 12, tied: true, canRest: false, seq: [{ dur: 'h', dots: 0, tieNext: true }, { dur: 'q', dots: 0 }] },  // 二 ~ 四
+    ];
+
+    // ─── 生成一个小节的音符 ──────────────────────────────────────────────────
+    function generateMeasure() {
+      const staveNotes = [];
+      const tieInfos   = [];
+      let remaining = 16;
+
+      while (remaining > 0) {
+        const fitting = PATTERNS.filter(p => p.total <= remaining);
+        const chosen  = fitting[Math.floor(Math.random() * fitting.length)];
+        // canRest 节奏型有 25% 概率变为休止符
+        const makeRest = chosen.canRest && Math.random() < 0.25;
+
+        chosen.seq.forEach(def => {
+          const duration = makeRest ? def.dur + 'r' : def.dur;
+          const note = new StaveNote({ keys: ['c/4'], duration, dots: def.dots });
+          // dots 参数负责时值计算，Dot.buildAndAttach 负责渲染圆点
+          if (def.dots > 0) Dot.buildAndAttach([note], { all: true });
+
+          if (def.tieNext) {
+            tieInfos.push({ fromIdx: staveNotes.length, toIdx: staveNotes.length + 1 });
+          }
+          staveNotes.push(note);
+        });
+
+        remaining -= chosen.total;
+      }
+
+      return { staveNotes, tieInfos };
+    }
+
+    // ─── 渲染 ─────────────────────────────────────────────────────────────────
+    function render() {
+      const container = document.getElementById('output');
+      container.innerHTML = '';
+
+      const NUM_MEASURES = Math.min(16, Math.max(1, parseInt(document.getElementById('input-measures').value, 10) || 4));
+      const STAVE_Y      = 30;
+      // 每行最多放 4 小节，自动换行
+      const PER_ROW      = Math.min(NUM_MEASURES, 4);
+      const ROWS         = Math.ceil(NUM_MEASURES / PER_ROW);
+      const TOTAL_WIDTH  = 960;
+      const ROW_HEIGHT   = 130;
+      const HEIGHT       = ROW_HEIGHT * ROWS + 20;
+
+      const renderer = new Renderer(container, Renderer.Backends.SVG);
+      renderer.resize(TOTAL_WIDTH, HEIGHT);
+      const ctx = renderer.getContext();
+
+      for (let m = 0; m < NUM_MEASURES; m++) {
+        const row        = Math.floor(m / PER_ROW);
+        const col        = m % PER_ROW;
+        const rowCount   = Math.min(PER_ROW, NUM_MEASURES - row * PER_ROW);
+        const isFirst    = col === 0;
+        const isLast     = col === rowCount - 1;
+        const FIRST_WIDTH = 260;
+        const OTHER_WIDTH = Math.floor((TOTAL_WIDTH - FIRST_WIDTH) / (PER_ROW - 1 || 1));
+        const staveWidth  = isFirst ? FIRST_WIDTH : OTHER_WIDTH;
+        const curX        = isFirst ? 0 : FIRST_WIDTH + (col - 1) * OTHER_WIDTH;
+        const curY        = STAVE_Y + row * ROW_HEIGHT;
+
+        const stave = new Stave(curX, curY, staveWidth);
+
+        if (isFirst) stave.addClef('treble').addTimeSignature('4/4');
+        if (isLast)  stave.setEndBarType(Barline.type.END);
+
+        stave.setContext(ctx).draw();
+
+        const { staveNotes, tieInfos } = generateMeasure();
+
+        // 八分音符连梁
+        const beams = Beam.generateBeams(
+          staveNotes.filter(n => !n.isRest() && n.getDuration() === '8')
+        );
+
+        // 声部排版
+        const voice = new Voice({ num_beats: 4, beat_value: 4 });
+        voice.addTickables(staveNotes);
+
+        new Formatter()
+          .joinVoices([voice])
+          .format([voice], staveWidth - (isFirst ? 90 : 20));
+
+        // VF5 要求：格式化后把 stave 绑定到每个 tickable，再 draw
+        staveNotes.forEach(n => n.setStave(stave));
+        voice.setContext(ctx).draw();
+        beams.forEach(b => b.setContext(ctx).draw());
+
+        // 连音线 —— VF5 使用 camelCase 参数
+        tieInfos.forEach(({ fromIdx, toIdx }) => {
+          if (toIdx < staveNotes.length) {
+            new StaveTie({
+              firstNote:    staveNotes[fromIdx],
+              lastNote:     staveNotes[toIdx],
+              firstIndices: [0],
+              lastIndices:  [0],
+            }).setContext(ctx).draw();
+          }
+        });
+
+      }
+    }
+
+    render();
+    document.getElementById('btn-generate').addEventListener('click', render);
+  </script>
+</body>
+</html>
