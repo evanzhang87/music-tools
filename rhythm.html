@@ -92,51 +92,36 @@
     const { Renderer, Stave, StaveNote, Voice, Formatter, StaveTie, Beam, Barline, Dot } = VexFlow;
 
     // ─── 节奏型定义（以十六分音符单位计，4/4 拍 = 16 单位）────────────────────
-    // canRest: 附点音符不作休止符（VF5 中 'qdr'/'hdr' 渲染不稳定）
     const PATTERNS = [
-      // 单音符（dots: 附点数量）
-      { total: 2,  tied: false, canRest: true,  seq: [{ dur: '8', dots: 0 }] },
-      { total: 4,  tied: false, canRest: true,  seq: [{ dur: 'q', dots: 0 }] },
-      { total: 6,  tied: false, canRest: false, seq: [{ dur: 'q', dots: 1 }] },  // 附点四分
-      { total: 8,  tied: false, canRest: true,  seq: [{ dur: 'h', dots: 0 }] },
-      { total: 12, tied: false, canRest: false, seq: [{ dur: 'h', dots: 1 }] },  // 附点二分
-
-      // 连音线（始终为音符）
-      { total: 4,  tied: true, canRest: false, seq: [{ dur: '8', dots: 0, tieNext: true }, { dur: '8', dots: 0 }] },  // 八 ~ 八
-      { total: 6,  tied: true, canRest: false, seq: [{ dur: 'q', dots: 0, tieNext: true }, { dur: '8', dots: 0 }] },  // 四 ~ 八
-      { total: 8,  tied: true, canRest: false, seq: [{ dur: 'q', dots: 0, tieNext: true }, { dur: 'q', dots: 0 }] },  // 四 ~ 四
-      { total: 10, tied: true, canRest: false, seq: [{ dur: 'h', dots: 0, tieNext: true }, { dur: '8', dots: 0 }] },  // 二 ~ 八
-      { total: 12, tied: true, canRest: false, seq: [{ dur: 'h', dots: 0, tieNext: true }, { dur: 'q', dots: 0 }] },  // 二 ~ 四
+      { total: 2,  canRest: true,  seq: [{ dur: '8', dots: 0 }] },
+      { total: 4,  canRest: true,  seq: [{ dur: 'q', dots: 0 }] },
+      { total: 6,  canRest: false, seq: [{ dur: 'q', dots: 1 }] },  // 附点四分
+      { total: 8,  canRest: true,  seq: [{ dur: 'h', dots: 0 }] },
+      { total: 12, canRest: false, seq: [{ dur: 'h', dots: 1 }] },  // 附点二分
+      { total: 16, canRest: true,  seq: [{ dur: 'w', dots: 0 }] },  // 全音符
     ];
 
     // ─── 生成一个小节的音符 ──────────────────────────────────────────────────
     function generateMeasure() {
       const staveNotes = [];
-      const tieInfos   = [];
       let remaining = 16;
 
       while (remaining > 0) {
         const fitting = PATTERNS.filter(p => p.total <= remaining);
         const chosen  = fitting[Math.floor(Math.random() * fitting.length)];
-        // canRest 节奏型有 25% 概率变为休止符
         const makeRest = chosen.canRest && Math.random() < 0.25;
 
         chosen.seq.forEach(def => {
           const duration = makeRest ? def.dur + 'r' : def.dur;
           const note = new StaveNote({ keys: ['c/4'], duration, dots: def.dots });
-          // dots 参数负责时值计算，Dot.buildAndAttach 负责渲染圆点
           if (def.dots > 0) Dot.buildAndAttach([note], { all: true });
-
-          if (def.tieNext) {
-            tieInfos.push({ fromIdx: staveNotes.length, toIdx: staveNotes.length + 1 });
-          }
           staveNotes.push(note);
         });
 
         remaining -= chosen.total;
       }
 
-      return { staveNotes, tieInfos };
+      return staveNotes;
     }
 
     // ─── 渲染 ─────────────────────────────────────────────────────────────────
@@ -157,7 +142,26 @@
       renderer.resize(TOTAL_WIDTH, HEIGHT);
       const ctx = renderer.getContext();
 
+      // ── 第一遍：生成所有小节的音符数据 ──
+      const allMeasureNotes = [];
       for (let m = 0; m < NUM_MEASURES; m++) {
+        allMeasureNotes.push(generateMeasure());
+      }
+
+      // ── 随机决定哪些相邻小节之间加连音线（30% 概率，且两端音符都不是休止符，且不跨行）──
+      const crossTies = []; // { fromNote, toNote }
+      for (let m = 0; m < NUM_MEASURES - 1; m++) {
+        if (m % PER_ROW === PER_ROW - 1) continue; // 跳过行尾→行首的连接
+        const lastNote  = allMeasureNotes[m].at(-1);
+        const firstNote = allMeasureNotes[m + 1][0];
+        if (!lastNote.isRest() && !firstNote.isRest() && Math.random() < 0.3) {
+          crossTies.push({ fromNote: lastNote, toNote: firstNote });
+        }
+      }
+
+      // ── 第二遍：渲染所有小节 ──
+      for (let m = 0; m < NUM_MEASURES; m++) {
+        const staveNotes = allMeasureNotes[m];
         const row        = Math.floor(m / PER_ROW);
         const col        = m % PER_ROW;
         const rowCount   = Math.min(PER_ROW, NUM_MEASURES - row * PER_ROW);
@@ -176,39 +180,34 @@
 
         stave.setContext(ctx).draw();
 
-        const { staveNotes, tieInfos } = generateMeasure();
-
         // 八分音符连梁
         const beams = Beam.generateBeams(
           staveNotes.filter(n => !n.isRest() && n.getDuration() === '8')
         );
 
-        // 声部排版
+        // 声部排版：formatToStave 自动以 stave 的实际可用宽度计算，避免音符溢出小节线
         const voice = new Voice({ num_beats: 4, beat_value: 4 });
         voice.addTickables(staveNotes);
 
         new Formatter()
           .joinVoices([voice])
-          .format([voice], staveWidth - (isFirst ? 90 : 20));
+          .formatToStave([voice], stave);
 
-        // VF5 要求：格式化后把 stave 绑定到每个 tickable，再 draw
         staveNotes.forEach(n => n.setStave(stave));
         voice.setContext(ctx).draw();
         beams.forEach(b => b.setContext(ctx).draw());
-
-        // 连音线 —— VF5 使用 camelCase 参数
-        tieInfos.forEach(({ fromIdx, toIdx }) => {
-          if (toIdx < staveNotes.length) {
-            new StaveTie({
-              firstNote:    staveNotes[fromIdx],
-              lastNote:     staveNotes[toIdx],
-              firstIndices: [0],
-              lastIndices:  [0],
-            }).setContext(ctx).draw();
-          }
-        });
-
       }
+
+      // ── 第三遍：绘制跨小节连音线（两端音符均已 setStave，可安全绘制）──
+      crossTies.forEach(({ fromNote, toNote }) => {
+        new StaveTie({
+          firstNote:    fromNote,
+          lastNote:     toNote,
+          firstIndices: [0],
+          lastIndices:  [0],
+        }).setContext(ctx).draw();
+      });
+
     }
 
     render();
