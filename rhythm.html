@@ -93,13 +93,24 @@
 
     // ─── 节奏型定义（以十六分音符单位计，4/4 拍 = 16 单位）────────────────────
     const PATTERNS = [
-      { total: 2,  canRest: true,  seq: [{ dur: '8', dots: 0 }] },
-      { total: 4,  canRest: true,  seq: [{ dur: 'q', dots: 0 }] },
-      { total: 6,  canRest: false, seq: [{ dur: 'q', dots: 1 }] },  // 附点四分
-      { total: 8,  canRest: true,  seq: [{ dur: 'h', dots: 0 }] },
-      { total: 12, canRest: false, seq: [{ dur: 'h', dots: 1 }] },  // 附点二分
-      { total: 16, canRest: true,  seq: [{ dur: 'w', dots: 0 }] },  // 全音符
+      { total: 2,  weight: 4, canRest: true,  seq: [{ dur: '8', dots: 0 }] },
+      { total: 4,  weight: 5, canRest: true,  seq: [{ dur: 'q', dots: 0 }] },
+      { total: 6,  weight: 3, canRest: false, seq: [{ dur: 'q', dots: 1 }] },  // 附点四分
+      { total: 8,  weight: 1, canRest: true,  seq: [{ dur: 'h', dots: 0 }] },  // 二分（降权）
+      { total: 12, weight: 0, canRest: false, seq: [{ dur: 'h', dots: 1 }] },  // 附点二分（降权）
+      { total: 16, weight: 0, canRest: true,  seq: [{ dur: 'w', dots: 0 }] },  // 全音符
     ];
+
+    // 按权重随机抽取
+    function weightedRandom(items) {
+      const total = items.reduce((s, p) => s + p.weight, 0);
+      let r = Math.random() * total;
+      for (const item of items) {
+        r -= item.weight;
+        if (r <= 0) return item;
+      }
+      return items[items.length - 1];
+    }
 
     // ─── 生成一个小节的音符 ──────────────────────────────────────────────────
     function generateMeasure() {
@@ -108,7 +119,7 @@
 
       while (remaining > 0) {
         const fitting = PATTERNS.filter(p => p.total <= remaining);
-        const chosen  = fitting[Math.floor(Math.random() * fitting.length)];
+        const chosen  = weightedRandom(fitting);
         const makeRest = chosen.canRest && Math.random() < 0.25;
 
         chosen.seq.forEach(def => {
