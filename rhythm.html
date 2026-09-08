@@ -160,11 +160,8 @@
       return { dur: 'qr' };
     }
 
-    // 每小节音符数上限：防止密集十六分让整小节宽度溢出、挤到下一小节
-    const MAX_NOTES = 7;
-
     // 生成一小节（4/4）：返回 { items: 事件序列, beamGroups: 各拍连梁的索引组 }
-    function buildMeasure() {
+    function generateMeasure() {
       const items = [];
       const beamGroups = [];
       const beats = []; // 每拍的事件序列（beats[b] 单位数恒为 4）
@@ -211,13 +208,6 @@
       return { items, beamGroups };
     }
 
-    // 重试生成，直到音符数 ≤ MAX_NOTES（否则会排版溢出、挤到下一小节）
-    function generateMeasure() {
-      let m, guard = 0;
-      do { m = buildMeasure(); } while (m.items.filter(it => !isRestItem(it)).length > MAX_NOTES && ++guard < 300);
-      return m;
-    }
-
     // ─── 渲染 ──────────────────────────────────────────────────────────────
     function render() {
       const container = document.getElementById('output');
@@ -225,15 +215,13 @@
 
       const NUM_MEASURES = Math.min(16, Math.max(1, parseInt(document.getElementById('input-measures').value, 10) || 4));
       const STAVE_Y      = 30;
-      const PER_ROW      = Math.min(NUM_MEASURES, 4);
-      const ROWS         = Math.ceil(NUM_MEASURES / PER_ROW);
-      const TOTAL_WIDTH  = 960;
       const ROW_HEIGHT   = 130;
-      const HEIGHT       = ROW_HEIGHT * ROWS + 20;
+      const TOTAL_WIDTH  = 960;   // 整张画布宽度（行宽上限）
+      const GAP          = 34;    // 小节之间的间距
+      const CLEF_SPACE   = 90;    // 行首小节给谱号+拍号留的宽度（含余量）
+      const MIN_WIDTH    = 150;   // 小节最窄宽度
 
       const renderer = new Renderer(container, Renderer.Backends.SVG);
-      renderer.resize(TOTAL_WIDTH, HEIGHT);
-      const ctx = renderer.getContext();
 
       // ── 第一遍：生成所有小节的数据（附点 / 连梁分组已确定）──
       const measures = [];
@@ -241,74 +229,87 @@
         measures.push(generateMeasure());
       }
 
-      // ── 跨小节连音线：只在【两个四分音符】之间连，避免把短音(八分/十六分)跨小节连住 ──
-      //   （短音跨小节连音在记谱上很别扭，且容易被误读成"小节时值不对"）
+      // ── 跨小节连音线：只在【两个四分音符】之间连，避免短音跨小节 ──
       const crossTies = [];
       for (let m = 0; m < NUM_MEASURES - 1; m++) {
-        if (m % PER_ROW === PER_ROW - 1) continue; // 跳过行尾→行首的连接
         const lastItem  = measures[m].items[measures[m].items.length - 1];
         const firstItem = measures[m + 1].items[0];
-        const isQuarter = (it) => it.dur === 'q'; // 只允许四分音符连四分音符
+        const isQuarter = (it) => it.dur === 'q';
         if (isQuarter(lastItem) && isQuarter(firstItem) && Math.random() < 0.35) {
           crossTies.push({ m, lastIdx: measures[m].items.length - 1, firstIdx: 0 });
         }
       }
 
-      // ── 第二遍：渲染所有小节 ──
-      for (let m = 0; m < NUM_MEASURES; m++) {
-        const { items, beamGroups } = measures[m];
-        const row        = Math.floor(m / PER_ROW);
-        const col        = m % PER_ROW;
-        const rowCount   = Math.min(PER_ROW, NUM_MEASURES - row * PER_ROW);
-        const isFirst    = col === 0;
-        const isLast     = col === rowCount - 1;
-        const FIRST_WIDTH = 260;
-        const OTHER_WIDTH = Math.floor((TOTAL_WIDTH - FIRST_WIDTH) / (PER_ROW - 1 || 1));
-        const staveWidth  = isFirst ? FIRST_WIDTH : OTHER_WIDTH;
-        const curX        = isFirst ? 0 : FIRST_WIDTH + (col - 1) * OTHER_WIDTH;
-        const curY        = STAVE_Y + row * ROW_HEIGHT;
-
-        const stave = new Stave(curX, curY, staveWidth);
-        if (isFirst) stave.addClef('treble').addTimeSignature('4/4');
-        if (isLast)  stave.setEndBarType(Barline.type.END);
-        stave.setContext(ctx).draw();
-
-        // 生成音符 / 休止符
-        const notes = items.map(it => {
+      // ── 第二遍：为每个小节构建 voice / formatter，并算出内容自然最小宽度 ──
+      const prepped = measures.map(measure => {
+        const notes = measure.items.map(it => {
           const note = new StaveNote({ keys: ['c/4'], duration: it.dur, dots: it.dots || 0 });
           if (it.dots) Dot.buildAndAttach([note], { all: true });
           return note;
         });
-
-        // 声部排版：formatToStave 自动以 stave 实际宽度排版，避免溢出小节线
         const voice = new Voice({ num_beats: 4, beat_value: 4 });
         voice.addTickables(notes);
-
-        new Formatter()
-          .joinVoices([voice])
-          .formatToStave([voice], stave);
-
-        notes.forEach(n => n.setStave(stave));
-
-        // 按拍连梁：必须先【创建 Beam】(调用 note.setBeam)，让 voice.draw() 画音符时
-        // 就抑制符尾；否则先 draw() 会把符尾画出来、连梁盖不掉（会看到“小勾勾”）。
-        const beams = beamGroups.map(group => new Beam(group.map(i => notes[i])));
-
-        voice.setContext(ctx).draw();
-        beams.forEach(b => b.setContext(ctx).draw());
-
-        measures[m].notes = notes; // 供跨小节连线使用
-      }
-
-      // ── 第三遍：绘制跨小节连音线 ──
-      crossTies.forEach(({ m, lastIdx, firstIdx }) => {
-        new StaveTie({
-          firstNote:    measures[m].notes[lastIdx],
-          lastNote:     measures[m + 1].notes[firstIdx],
-          firstIndices: [0],
-          lastIndices:  [0],
-        }).setContext(ctx).draw();
+        const formatter = new Formatter().joinVoices([voice]);
+        let minW = 0;
+        try { minW = formatter.preCalculateMinTotalWidth([voice]); } catch (e) { minW = 0; }
+        return { ...measure, notes, voice, formatter, minW };
       });
+
+      // ── 第三遍：自适应排版——每个小节按其内容宽度绘制，放不下就换行 ──
+      const rows = [];
+      let row = [], rowW = 0;
+      prepped.forEach(p => {
+        const isFirstInRow = row.length === 0;
+        const w = Math.max(MIN_WIDTH, p.minW + (isFirstInRow ? CLEF_SPACE : 0) + GAP);
+        if (rowW + w > TOTAL_WIDTH && row.length > 0) {
+          rows.push(row); row = [p]; rowW = w; p._row = rows.length;
+        } else {
+          row.push(p); rowW += w; p._row = rows.length;
+        }
+      });
+      if (row.length) rows.push(row);
+
+      const HEIGHT = rows.length * ROW_HEIGHT + 20;
+      renderer.resize(TOTAL_WIDTH, HEIGHT);
+      const ctx = renderer.getContext();
+
+      // ── 第四遍：按行渲染 ──
+      rows.forEach((rowItems, r) => {
+        let curX = 0;
+        const curY = STAVE_Y + r * ROW_HEIGHT;
+        rowItems.forEach((p, idx) => {
+          const isFirst = idx === 0;
+          const isLast  = idx === rowItems.length - 1;
+          const staveWidth = Math.max(MIN_WIDTH, p.minW + (isFirst ? CLEF_SPACE : 0) + GAP);
+
+          const stave = new Stave(curX, curY, staveWidth);
+          if (isFirst) stave.addClef('treble').addTimeSignature('4/4');
+          if (isLast)  stave.setEndBarType(Barline.type.END);
+          stave.setContext(ctx).draw();
+
+          p.formatter.formatToStave([p.voice], stave);
+          p.notes.forEach(n => n.setStave(stave));
+
+          // 按拍连梁：先【创建 Beam】(setBeam 抑制符尾)，再 draw，避免“小勾勾”
+          const beams = p.beamGroups.map(group => new Beam(group.map(i => p.notes[i])));
+          p.voice.setContext(ctx).draw();
+          beams.forEach(b => b.setContext(ctx).draw());
+
+          curX += staveWidth;
+        });
+      });
+
+      // ── 第五遍：绘制跨小节连音线（只在同一行内连，避免跨行弧线）──
+      crossTies
+        .filter(t => (prepped[t.m]._row ?? prepped[t.m + 1]._row ?? 0) === (prepped[t.m + 1]._row ?? 0))
+        .forEach(({ m, lastIdx, firstIdx }) => {
+          new StaveTie({
+            firstNote:    prepped[m].notes[lastIdx],
+            lastNote:     prepped[m + 1].notes[firstIdx],
+            firstIndices: [0],
+            lastIndices:  [0],
+          }).setContext(ctx).draw();
+        });
     }
 
     render();
