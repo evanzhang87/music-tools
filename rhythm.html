@@ -80,6 +80,9 @@
   <div class="controls">
     <label for="input-measures">小节数</label>
     <input id="input-measures" type="number" min="1" max="16" value="4">
+    <label style="font-size:14px;color:#555;display:flex;align-items:center;gap:4px;cursor:pointer;">
+      <input type="checkbox" id="input-strong"> 强化重拍
+    </label>
     <button id="btn-generate">重新生成</button>
   </div>
   <div id="output"></div>
@@ -133,12 +136,27 @@
     // 一拍是否就是「整拍休止」（仅一个四分休止，可继续合并）
     const isFullRestItems = (its) => its.length === 1 && its[0].dur === 'qr';
 
+    // 「强化重拍」开关：打开时，强拍(第1、3拍)用「以强音开头」的节奏型（四分/八分开头），
+    // 并且强拍不填休止(保住重音)；弱拍(第2、4拍)才允许切分/细分/休止。
+    let REINFORCE_STRONG = false;
+    const STRONG_FIRST = ['q', '8']; // 强拍可接受的「拍首时值」(四分或八分开头)
+    const isStrongStart = (cell) => {
+      const first = cell.items[0];
+      if (isRestItem(first)) return false;
+      return STRONG_FIRST.includes(first.dur.replace(/r$/, ''));
+    };
+
     // 生成一拍，并考虑上一拍结尾的休止情况，保证【半拍休止永不与其它休止相邻】。
     // prevSubRest：上一拍以半拍休止结尾；prevEndsRest：上一拍以任意休止结尾。
-    function generateBeat(prevSubRest, prevEndsRest) {
+    function generateBeat(prevSubRest, prevEndsRest, strong) {
       const pool = [];
-      for (const c of NOTE_CELLS) pool.push({ ...c, kind: 'n' });
+      for (const c of NOTE_CELLS) {
+        // 强化重拍：强拍只用「以强音开头」的节奏型（四分/八分起拍），不用十六分起拍等弱起
+        if (REINFORCE_STRONG && strong && !isStrongStart(c)) continue;
+        pool.push({ ...c, kind: 'n' });
+      }
       for (const c of REST_CELLS) {
+        if (REINFORCE_STRONG && strong) continue; // 强化重拍：强拍不填休止，保住重音
         const startsSubRest = c.items.length > 1 && isRestItem(c.items[0]) && c.items[0].dur !== 'qr';
         const isFull        = c.items.length === 1 && c.items[0].dur === 'qr';
         // 上一拍已以休止结尾：本拍不能再以「半拍休止」开头
@@ -168,7 +186,8 @@
       let prevSubRest = false, prevEndsRest = false;
 
       for (let b = 0; b < 4; b++) {
-        const beatItems = generateBeat(prevSubRest, prevEndsRest);
+        const strong = (b === 0 || b === 2); // 4/4：第1拍=强拍、第3拍=次强拍
+        const beatItems = generateBeat(prevSubRest, prevEndsRest, strong);
         beats.push(beatItems);
         const last = beatItems[beatItems.length - 1];
         prevSubRest  = isRestItem(last) && last.dur !== 'qr';
@@ -214,6 +233,7 @@
       container.innerHTML = '';
 
       const NUM_MEASURES = Math.min(16, Math.max(1, parseInt(document.getElementById('input-measures').value, 10) || 4));
+      REINFORCE_STRONG = !!(document.getElementById('input-strong') && document.getElementById('input-strong').checked);
       const STAVE_Y      = 30;
       const ROW_HEIGHT   = 130;
       const TOTAL_WIDTH  = 960;   // 整张画布宽度（行宽上限）
