@@ -160,8 +160,11 @@
       return { dur: 'qr' };
     }
 
+    // 每小节音符数上限：防止密集十六分让整小节宽度溢出、挤到下一小节
+    const MAX_NOTES = 7;
+
     // 生成一小节（4/4）：返回 { items: 事件序列, beamGroups: 各拍连梁的索引组 }
-    function generateMeasure() {
+    function buildMeasure() {
       const items = [];
       const beamGroups = [];
       const beats = []; // 每拍的事件序列（beats[b] 单位数恒为 4）
@@ -206,6 +209,13 @@
       }
 
       return { items, beamGroups };
+    }
+
+    // 重试生成，直到音符数 ≤ MAX_NOTES（否则会排版溢出、挤到下一小节）
+    function generateMeasure() {
+      let m, guard = 0;
+      do { m = buildMeasure(); } while (m.items.filter(it => !isRestItem(it)).length > MAX_NOTES && ++guard < 300);
+      return m;
     }
 
     // ─── 渲染 ──────────────────────────────────────────────────────────────
