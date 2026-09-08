@@ -76,7 +76,7 @@
 </head>
 <body>
   <h1>随机节奏练习 —— 4/4 拍</h1>
-  <p class="hint">音高固定为 C4 或休止符，节奏型随机生成（含附点与连音线）</p>
+  <p class="hint">音高固定为 C4 或休止符。节奏按「一拍一个完整的节奏型」生成，八分/十六分按拍连梁，休止符规范合并，不跨小节中点。</p>
   <div class="controls">
     <label for="input-measures">小节数</label>
     <input id="input-measures" type="number" min="1" max="16" value="4">
@@ -91,58 +91,130 @@
   <script>
     const { Renderer, Stave, StaveNote, Voice, Formatter, StaveTie, Beam, Barline, Dot } = VexFlow;
 
-    // ─── 节奏型定义（以十六分音符单位计，4/4 拍 = 16 单位）────────────────────
-    const PATTERNS = [
-      { total: 2,  weight: 4, canRest: true,  seq: [{ dur: '8', dots: 0 }] },
-      { total: 4,  weight: 5, canRest: true,  seq: [{ dur: 'q', dots: 0 }] },
-      { total: 6,  weight: 3, canRest: false, seq: [{ dur: 'q', dots: 1 }] },  // 附点四分
-      { total: 8,  weight: 1, canRest: true,  seq: [{ dur: 'h', dots: 0 }] },  // 二分（降权）
-      { total: 12, weight: 0, canRest: false, seq: [{ dur: 'h', dots: 1 }] },  // 附点二分（降权）
-      { total: 16, weight: 0, canRest: true,  seq: [{ dur: 'w', dots: 0 }] },  // 全音符
+    // ─── 记谱规范（常见节奏型，一拍 = 4 个十六分单位，4/4 共 16 单位）────────
+    //  1) 每一拍从下面选一个【完整节奏型】，绝不跨拍 / 不跨小节中点。
+    //  2) 八分/十六分音符按【一拍】分组连梁，让每拍看得清清楚楚。
+    //  3) 休止符要么占满一拍（四分休止），要么作为半拍休止与音符配对，避免
+    //     出现「四分休止 → 八分休止」这种该合并却没合并的写法。
+    //  4) 连续整拍休止会合并成更长的休止（二分 / 全小节休止），但绝不跨 4/4
+    //     小节中点（第 2、3 拍之间）。
+    //  5) 每个联合组的第一音不落在弱起（off-beat）上（这里每个组都是整拍开头）。
+
+    const NOTE_CELLS = [
+      { weight: 5, items: [{ dur: 'q' }] },                          // 四分音符（整拍）
+      { weight: 6, items: [{ dur: '8' }, { dur: '8' }] },            // 两个八分（“动-动”）
+      { weight: 3, items: [{ dur: '8', dots: 1 }, { dur: '16' }] },  // 附点八分 + 十六分
+      { weight: 3, items: [{ dur: '16' }, { dur: '8', dots: 1 }] },  // 十六分 + 附点八分
+      { weight: 2, items: [{ dur: '16' }, { dur: '16' }, { dur: '16' }, { dur: '16' }] }, // 四个十六分
+      { weight: 3, items: [{ dur: '8' }, { dur: '16' }, { dur: '16' }] },  // 八分 + 两个十六分
+      { weight: 3, items: [{ dur: '16' }, { dur: '16' }, { dur: '8' }] },  // 两个十六分 + 八分
     ];
 
+    const REST_CELLS = [
+      { weight: 5, items: [{ dur: 'qr' }] },                         // 整拍休止（四分休止，可后续合并）
+      { weight: 2, items: [{ dur: '8r' }, { dur: '8' }] },           // 八分休止 + 八分
+      { weight: 2, items: [{ dur: '8' }, { dur: '8r' }] },           // 八分 + 八分休止
+    ];
+
+    const REST_PROB = 0.16; // 每拍出现休止型节奏的概率
+
     // 按权重随机抽取
-    function weightedRandom(items) {
-      const total = items.reduce((s, p) => s + p.weight, 0);
+    function weightedRandom(cells) {
+      const total = cells.reduce((s, c) => s + c.weight, 0);
       let r = Math.random() * total;
-      for (const item of items) {
-        r -= item.weight;
-        if (r <= 0) return item;
+      for (const c of cells) {
+        r -= c.weight;
+        if (r <= 0) return c;
       }
-      return items[items.length - 1];
+      return cells[cells.length - 1];
     }
 
-    // ─── 生成一个小节的音符 ──────────────────────────────────────────────────
+    const isRestItem  = (it) => it.dur.endsWith('r');
+    // 一拍是否就是「整拍休止」（仅一个四分休止，可继续合并）
+    const isFullRestItems = (its) => its.length === 1 && its[0].dur === 'qr';
+
+    // 生成一拍，并考虑上一拍结尾的休止情况，保证【半拍休止永不与其它休止相邻】。
+    // prevSubRest：上一拍以半拍休止结尾；prevEndsRest：上一拍以任意休止结尾。
+    function generateBeat(prevSubRest, prevEndsRest) {
+      const pool = [];
+      for (const c of NOTE_CELLS) pool.push({ ...c, kind: 'n' });
+      for (const c of REST_CELLS) {
+        const startsSubRest = c.items.length > 1 && isRestItem(c.items[0]) && c.items[0].dur !== 'qr';
+        const isFull        = c.items.length === 1 && c.items[0].dur === 'qr';
+        // 上一拍已以休止结尾：本拍不能再以「半拍休止」开头
+        if (startsSubRest && prevEndsRest) continue;
+        // 上一拍以半拍休止结尾：本拍不能再是整拍休止
+        if (isFull && prevSubRest) continue;
+        pool.push({ ...c, kind: 'r' });
+      }
+      const restPool = pool.filter(c => c.kind === 'r');
+      const notePool = pool.filter(c => c.kind === 'n');
+      const chosen = (restPool.length && Math.random() < REST_PROB) ? weightedRandom(restPool) : weightedRandom(notePool);
+      return chosen.items; // 该拍的事件序列（单位数 = 4）
+    }
+
+    // 连续整拍休止 → 更长休止；保持小节中点（索引 1|2）可见，不跨中点合并。
+    function restOfLen(n) { // n 拍：1=四分休止 2=二分休止 >=4=全小节休止
+      if (n >= 4) return { dur: 'wr' };
+      if (n === 2) return { dur: 'hr' };
+      return { dur: 'qr' };
+    }
+
+    // 生成一小节（4/4）：返回 { items: 事件序列, beamGroups: 各拍连梁的索引组 }
     function generateMeasure() {
-      const staveNotes = [];
-      let remaining = 16;
+      const items = [];
+      const beamGroups = [];
+      const beats = []; // 每拍的事件序列（beats[b] 单位数恒为 4）
+      let prevSubRest = false, prevEndsRest = false;
 
-      while (remaining > 0) {
-        const fitting = PATTERNS.filter(p => p.total <= remaining);
-        const chosen  = weightedRandom(fitting);
-        const makeRest = chosen.canRest && Math.random() < 0.25;
-
-        chosen.seq.forEach(def => {
-          const duration = makeRest ? def.dur + 'r' : def.dur;
-          const note = new StaveNote({ keys: ['c/4'], duration, dots: def.dots });
-          if (def.dots > 0) Dot.buildAndAttach([note], { all: true });
-          staveNotes.push(note);
-        });
-
-        remaining -= chosen.total;
+      for (let b = 0; b < 4; b++) {
+        const beatItems = generateBeat(prevSubRest, prevEndsRest);
+        beats.push(beatItems);
+        const last = beatItems[beatItems.length - 1];
+        prevSubRest  = isRestItem(last) && last.dur !== 'qr';
+        prevEndsRest = isRestItem(last);
       }
 
-      return staveNotes;
+      let i = 0;
+      while (i < 4) {
+        const beatItems = beats[i];
+        if (isFullRestItems(beatItems)) {
+          let j = i;
+          while (j < 4 && isFullRestItems(beats[j])) j++;
+          let start = i;
+          while (start < j) {
+            if (start <= 1) {
+              const end = Math.min(j - 1, 1);
+              items.push(restOfLen(end - start + 1));
+              start = end + 1;
+            } else {
+              items.push(restOfLen(j - start));
+              start = j;
+            }
+          }
+          i = j;
+        } else {
+          const startIdx = items.length;
+          for (const it of beatItems) items.push(it);
+          const noteIdxs = [];
+          for (let k = startIdx; k < items.length; k++) {
+            if (!isRestItem(items[k])) noteIdxs.push(k);
+          }
+          if (noteIdxs.length >= 2) beamGroups.push(noteIdxs);
+          i++;
+        }
+      }
+
+      return { items, beamGroups };
     }
 
-    // ─── 渲染 ─────────────────────────────────────────────────────────────────
+    // ─── 渲染 ──────────────────────────────────────────────────────────────
     function render() {
       const container = document.getElementById('output');
       container.innerHTML = '';
 
       const NUM_MEASURES = Math.min(16, Math.max(1, parseInt(document.getElementById('input-measures').value, 10) || 4));
       const STAVE_Y      = 30;
-      // 每行最多放 4 小节，自动换行
       const PER_ROW      = Math.min(NUM_MEASURES, 4);
       const ROWS         = Math.ceil(NUM_MEASURES / PER_ROW);
       const TOTAL_WIDTH  = 960;
@@ -153,26 +225,26 @@
       renderer.resize(TOTAL_WIDTH, HEIGHT);
       const ctx = renderer.getContext();
 
-      // ── 第一遍：生成所有小节的音符数据 ──
-      const allMeasureNotes = [];
+      // ── 第一遍：生成所有小节的数据（附点 / 连梁分组已确定）──
+      const measures = [];
       for (let m = 0; m < NUM_MEASURES; m++) {
-        allMeasureNotes.push(generateMeasure());
+        measures.push(generateMeasure());
       }
 
-      // ── 随机决定哪些相邻小节之间加连音线（30% 概率，且两端音符都不是休止符，且不跨行）──
-      const crossTies = []; // { fromNote, toNote }
+      // ── 跨小节连音线：两端都不是休止符、不跨行 ──
+      const crossTies = [];
       for (let m = 0; m < NUM_MEASURES - 1; m++) {
-        if (m % PER_ROW === PER_ROW - 1) continue; // 跳过行尾→行首的连接
-        const lastNote  = allMeasureNotes[m].at(-1);
-        const firstNote = allMeasureNotes[m + 1][0];
-        if (!lastNote.isRest() && !firstNote.isRest() && Math.random() < 0.3) {
-          crossTies.push({ fromNote: lastNote, toNote: firstNote });
+        if (m % PER_ROW === PER_ROW - 1) continue;
+        const lastItem  = measures[m].items[measures[m].items.length - 1];
+        const firstItem = measures[m + 1].items[0];
+        if (!isRestItem(lastItem) && !isRestItem(firstItem) && Math.random() < 0.3) {
+          crossTies.push({ m, lastIdx: measures[m].items.length - 1, firstIdx: 0 });
         }
       }
 
       // ── 第二遍：渲染所有小节 ──
       for (let m = 0; m < NUM_MEASURES; m++) {
-        const staveNotes = allMeasureNotes[m];
+        const { items, beamGroups } = measures[m];
         const row        = Math.floor(m / PER_ROW);
         const col        = m % PER_ROW;
         const rowCount   = Math.min(PER_ROW, NUM_MEASURES - row * PER_ROW);
@@ -185,40 +257,45 @@
         const curY        = STAVE_Y + row * ROW_HEIGHT;
 
         const stave = new Stave(curX, curY, staveWidth);
-
         if (isFirst) stave.addClef('treble').addTimeSignature('4/4');
         if (isLast)  stave.setEndBarType(Barline.type.END);
-
         stave.setContext(ctx).draw();
 
-        // 八分音符连梁
-        const beams = Beam.generateBeams(
-          staveNotes.filter(n => !n.isRest() && n.getDuration() === '8')
-        );
+        // 生成音符 / 休止符
+        const notes = items.map(it => {
+          const note = new StaveNote({ keys: ['c/4'], duration: it.dur, dots: it.dots || 0 });
+          if (it.dots) Dot.buildAndAttach([note], { all: true });
+          return note;
+        });
 
-        // 声部排版：formatToStave 自动以 stave 的实际可用宽度计算，避免音符溢出小节线
+        // 声部排版：formatToStave 自动以 stave 实际宽度排版，避免溢出小节线
         const voice = new Voice({ num_beats: 4, beat_value: 4 });
-        voice.addTickables(staveNotes);
+        voice.addTickables(notes);
 
         new Formatter()
           .joinVoices([voice])
           .formatToStave([voice], stave);
 
-        staveNotes.forEach(n => n.setStave(stave));
+        notes.forEach(n => n.setStave(stave));
         voice.setContext(ctx).draw();
-        beams.forEach(b => b.setContext(ctx).draw());
+
+        // 按拍连梁（手动指定组：绝不跨拍 / 不跨小节中点）
+        beamGroups.forEach(group => {
+          new Beam(group.map(i => notes[i])).setContext(ctx).draw();
+        });
+
+        measures[m].notes = notes; // 供跨小节连线使用
       }
 
-      // ── 第三遍：绘制跨小节连音线（两端音符均已 setStave，可安全绘制）──
-      crossTies.forEach(({ fromNote, toNote }) => {
+      // ── 第三遍：绘制跨小节连音线 ──
+      crossTies.forEach(({ m, lastIdx, firstIdx }) => {
         new StaveTie({
-          firstNote:    fromNote,
-          lastNote:     toNote,
+          firstNote:    measures[m].notes[lastIdx],
+          lastNote:     measures[m + 1].notes[firstIdx],
           firstIndices: [0],
           lastIndices:  [0],
         }).setContext(ctx).draw();
       });
-
     }
 
     render();
