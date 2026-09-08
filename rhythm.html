@@ -277,12 +277,13 @@
           .formatToStave([voice], stave);
 
         notes.forEach(n => n.setStave(stave));
-        voice.setContext(ctx).draw();
 
-        // 按拍连梁（手动指定组：绝不跨拍 / 不跨小节中点）
-        beamGroups.forEach(group => {
-          new Beam(group.map(i => notes[i])).setContext(ctx).draw();
-        });
+        // 按拍连梁：必须先【创建 Beam】(调用 note.setBeam)，让 voice.draw() 画音符时
+        // 就抑制符尾；否则先 draw() 会把符尾画出来、连梁盖不掉（会看到“小勾勾”）。
+        const beams = beamGroups.map(group => new Beam(group.map(i => notes[i])));
+
+        voice.setContext(ctx).draw();
+        beams.forEach(b => b.setContext(ctx).draw());
 
         measures[m].notes = notes; // 供跨小节连线使用
       }
