@@ -229,13 +229,13 @@
         measures.push(generateMeasure());
       }
 
-      // ── 跨小节连音线：只在【两个四分音符】之间连，避免短音跨小节 ──
+      // ── 跨小节连音线：两端都是普通音符(非休止、非十六分)就允许连，避免短音/十六分跨小节 ──
       const crossTies = [];
       for (let m = 0; m < NUM_MEASURES - 1; m++) {
         const lastItem  = measures[m].items[measures[m].items.length - 1];
         const firstItem = measures[m + 1].items[0];
-        const isQuarter = (it) => it.dur === 'q';
-        if (isQuarter(lastItem) && isQuarter(firstItem) && Math.random() < 0.35) {
+        const isTieable = (it) => it && !isRestItem(it) && it.dur !== '16'; // 十六分跨小节连线很别扭，排除
+        if (isTieable(lastItem) && isTieable(firstItem) && Math.random() < 0.6) {
           crossTies.push({ m, lastIdx: measures[m].items.length - 1, firstIdx: 0 });
         }
       }
