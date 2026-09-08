@@ -231,13 +231,15 @@
         measures.push(generateMeasure());
       }
 
-      // ── 跨小节连音线：两端都不是休止符、不跨行 ──
+      // ── 跨小节连音线：只在【两个四分音符】之间连，避免把短音(八分/十六分)跨小节连住 ──
+      //   （短音跨小节连音在记谱上很别扭，且容易被误读成"小节时值不对"）
       const crossTies = [];
       for (let m = 0; m < NUM_MEASURES - 1; m++) {
-        if (m % PER_ROW === PER_ROW - 1) continue;
+        if (m % PER_ROW === PER_ROW - 1) continue; // 跳过行尾→行首的连接
         const lastItem  = measures[m].items[measures[m].items.length - 1];
         const firstItem = measures[m + 1].items[0];
-        if (!isRestItem(lastItem) && !isRestItem(firstItem) && Math.random() < 0.3) {
+        const isQuarter = (it) => it.dur === 'q'; // 只允许四分音符连四分音符
+        if (isQuarter(lastItem) && isQuarter(firstItem) && Math.random() < 0.35) {
           crossTies.push({ m, lastIdx: measures[m].items.length - 1, firstIdx: 0 });
         }
       }
