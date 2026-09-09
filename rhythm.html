@@ -239,7 +239,8 @@
       const ROW_HEIGHT   = 130;
       const ROW_TARGET   = 1200;  // 每行最大宽度（放宽，让密集小节有空间）；超过则换行
       const GAP          = 34;    // 小节之间的间距
-      const CLEF_SPACE   = 90;    // 行首小节给谱号+拍号留的宽度（含余量）
+      const CLEF_SPACE   = 90;    // 行首小节给谱号+拍号留的宽度（第一行用）
+      const CLEF_ONLY    = 55;    // 后续行首小节只画谱号用的宽度（不重复拍号）
       const MIN_WIDTH    = 150;   // 小节最窄宽度
       const RIGHT_MARGIN = 40;    // 每个小节「音符区右缘」与「小节线」之间的余量（避免最右音符/连梁顶到或越过小节线）
       const ROW_MARGIN   = 30;    // 行末预留，避免最后一个小节贴到画布右缘
@@ -284,18 +285,20 @@
       let row = [], rowW = 0;
       prepped.forEach(p => {
         if (row.length === 0) {
-          // 本小节是行首 → 谱号/拍号占位要算进宽度（否则行宽被低估、右缘会被裁）
-          const w = Math.max(MIN_WIDTH, p.minW + CLEF_SPACE + GAP);
-          row.push(p); rowW += w; p._row = rows.length;
+          // 本小节是行首：第一行用 谱号+拍号(CLEF_SPACE)，后续行只画谱号(CLEF_ONLY)
+          const clefW = (rows.length === 0 ? CLEF_SPACE : CLEF_ONLY);
+          const w = Math.max(MIN_WIDTH, p.minW + clefW + GAP);
+          row.push(p); rowW += w; p._row = rows.length; p._clefW = clefW;
         } else {
           const wNon = Math.max(MIN_WIDTH, p.minW + GAP);
           if (rowW + wNon > ROW_TARGET - ROW_MARGIN) {
-            // 放不下 → 换行；该小节成为新行首（含谱号占位宽度）
+            // 放不下 → 换行；该小节成为新行首（后续行只画谱号）
             rows.push(row); rowWidths.push(rowW);
-            const w = Math.max(MIN_WIDTH, p.minW + CLEF_SPACE + GAP);
-            row = [p]; rowW = w; p._row = rows.length;
+            const clefW = (rows.length === 0 ? CLEF_SPACE : CLEF_ONLY);
+            const w = Math.max(MIN_WIDTH, p.minW + clefW + GAP);
+            row = [p]; rowW = w; p._row = rows.length; p._clefW = clefW;
           } else {
-            row.push(p); rowW += wNon; p._row = rows.length;
+            row.push(p); rowW += wNon; p._row = rows.length; p._clefW = 0;
           }
         }
       });
@@ -314,10 +317,13 @@
         rowItems.forEach((p, idx) => {
           const isFirst = idx === 0;
           const isLast  = idx === rowItems.length - 1;
-          const staveWidth = Math.max(MIN_WIDTH, p.minW + (isFirst ? CLEF_SPACE : 0) + GAP);
+          const staveWidth = Math.max(MIN_WIDTH, p.minW + (p._clefW || 0) + GAP);
 
           const stave = new Stave(curX, curY, staveWidth);
-          if (isFirst) stave.addClef('treble').addTimeSignature('4/4');
+          if (isFirst) {
+            stave.addClef('treble');               // 谱号每行都要有（换行后重新建立音高基准）
+            if (p._row === 0) stave.addTimeSignature('4/4'); // 拍号只在第一行显示一次
+          }
           if (isLast)  stave.setEndBarType(Barline.type.END);
           stave.setContext(ctx).draw();
 
