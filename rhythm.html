@@ -241,6 +241,7 @@
       const GAP          = 34;    // 小节之间的间距
       const CLEF_SPACE   = 90;    // 第一行首小节的 谱号+拍号 占位宽度（后续行两者都去掉）
       const MIN_WIDTH    = 150;   // 小节最窄宽度
+      const LEFT_MARGIN  = 30;    // 行首左边距：避免行首小节号居中被左缘裁掉
       const RIGHT_MARGIN = 40;    // 每个小节「音符区右缘」与「小节线」之间的余量（避免最右音符/连梁顶到或越过小节线）
       const ROW_MARGIN   = 30;    // 行末预留，避免最后一个小节贴到画布右缘
 
@@ -303,15 +304,15 @@
       });
       if (row.length) { rows.push(row); rowWidths.push(rowW); }
 
-      // 画布宽度自适应内容：取最长一行的实际宽度 + 行末边距（避免右缘被裁/贴边）
-      const svgW = Math.max(0, ...rowWidths) + ROW_MARGIN;
+      // 画布宽度自适应内容：取最长一行的实际宽度 + 左边距 + 行末边距（右缘不裁、行首小节号不被裁）
+      const svgW = LEFT_MARGIN + Math.max(0, ...rowWidths) + ROW_MARGIN;
       const HEIGHT = rows.length * ROW_HEIGHT + 20;
       renderer.resize(svgW, HEIGHT);
       const ctx = renderer.getContext();
 
       // ── 第四遍：按行渲染 ──
       rows.forEach((rowItems, r) => {
-        let curX = 0;
+        let curX = LEFT_MARGIN;              // 行首留左边距，避免行首小节号被左缘裁掉
         const curY = STAVE_Y + r * ROW_HEIGHT;
         rowItems.forEach((p, idx) => {
           const isFirst = idx === 0;
