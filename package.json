@@ -1,5 +1,20 @@
 {
+  "name": "evan-music-lab",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Evan Music Lab — random rhythm generation written to notation with VexFlow 5, deployable to GitHub Pages.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
-    "vexflow": "^5.0.0"
+    "playwright-core": "^1.63.0",
+    "vexflow": "5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.4.11"
   }
 }
