@@ -71,6 +71,7 @@
       padding: 20px;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      width: max-content;   /* 外框宽度随内容自适应，避免右侧大片空白 */
     }
   </style>
 </head>
@@ -236,10 +237,12 @@
       REINFORCE_STRONG = !!(document.getElementById('input-strong') && document.getElementById('input-strong').checked);
       const STAVE_Y      = 30;
       const ROW_HEIGHT   = 130;
-      const TOTAL_WIDTH  = 960;   // 整张画布宽度（行宽上限）
+      const ROW_TARGET   = 1200;  // 每行最大宽度（放宽，让密集小节有空间）；超过则换行
       const GAP          = 34;    // 小节之间的间距
       const CLEF_SPACE   = 90;    // 行首小节给谱号+拍号留的宽度（含余量）
       const MIN_WIDTH    = 150;   // 小节最窄宽度
+      const RIGHT_MARGIN = 40;    // 每个小节「音符区右缘」与「小节线」之间的余量（避免最右音符/连梁顶到或越过小节线）
+      const ROW_MARGIN   = 30;    // 行末预留，避免最后一个小节贴到画布右缘
 
       const renderer = new Renderer(container, Renderer.Backends.SVG);
 
@@ -277,20 +280,23 @@
 
       // ── 第三遍：自适应排版——每个小节按其内容宽度绘制，放不下就换行 ──
       const rows = [];
+      const rowWidths = [];
       let row = [], rowW = 0;
       prepped.forEach(p => {
         const isFirstInRow = row.length === 0;
         const w = Math.max(MIN_WIDTH, p.minW + (isFirstInRow ? CLEF_SPACE : 0) + GAP);
-        if (rowW + w > TOTAL_WIDTH && row.length > 0) {
-          rows.push(row); row = [p]; rowW = w; p._row = rows.length;
+        if (rowW + w > ROW_TARGET - ROW_MARGIN && row.length > 0) {
+          rows.push(row); rowWidths.push(rowW); row = [p]; rowW = w; p._row = rows.length;
         } else {
           row.push(p); rowW += w; p._row = rows.length;
         }
       });
-      if (row.length) rows.push(row);
+      if (row.length) { rows.push(row); rowWidths.push(rowW); }
 
+      // 画布宽度自适应内容：取最长一行的实际宽度（不再固定 960，避免靠右被裁）
+      const svgW = Math.max(0, ...rowWidths);
       const HEIGHT = rows.length * ROW_HEIGHT + 20;
-      renderer.resize(TOTAL_WIDTH, HEIGHT);
+      renderer.resize(svgW, HEIGHT);
       const ctx = renderer.getContext();
 
       // ── 第四遍：按行渲染 ──
@@ -306,6 +312,10 @@
           if (isFirst) stave.addClef('treble').addTimeSignature('4/4');
           if (isLast)  stave.setEndBarType(Barline.type.END);
           stave.setContext(ctx).draw();
+
+          // 让音符区右缘离小节线留出 RIGHT_MARGIN，避免最后一个音符/连梁顶到或越过小节线(靠边被裁)
+          stave.getNoteEndX();                 // 先强制 format()，再覆盖 endX
+          stave.endX = curX + staveWidth - RIGHT_MARGIN;
 
           p.formatter.formatToStave([p.voice], stave);
           p.notes.forEach(n => n.setStave(stave));
