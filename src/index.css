@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 小渐变文字(品牌名) */
+.brand-text {
+  background: linear-gradient(90deg, #ec4899, #8b5cf6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 卡片通用 */
+.card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+/* VexFlow 输出框 */
+#output {
+  padding: 20px;
+  border: 1px solid #fbcfe8;
+  border-radius: 12px;
+  background: #fff;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── 指板音记忆模块 ── */
+.fb-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.fb-controls select,
+.fb-controls button {
+  padding: 6px 12px;
+  font-size: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+.fb-controls button {
+  background: linear-gradient(90deg, #ec4899, #8b5cf6);
+  color: #fff;
+  border: none;
+}
+.fb-controls label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: #475569;
+  cursor: pointer;
+}
+.fb-controls label input { accent-color: #ec4899; }
+.fb-board { margin-bottom: 14px; }
+.fb-board svg { display: block; }
+.fb-answers { margin-bottom: 12px; }
+.fb-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 640px;
+}
+.fb-note {
+  width: 46px;
+  height: 46px;
+  font-size: 15px;
+  cursor: pointer;
+  background: #fff;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  transition: all 0.15s;
+}
+.fb-note:hover { background: #fdf2f8; border-color: #ec4899; }
+.fb-target { font-size: 15px; color: #334155; margin-bottom: 8px; }
+.fb-feedback { font-size: 14px; color: #64748b; }
+.fb-feedback b { color: #ec4899; }
