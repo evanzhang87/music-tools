@@ -3,26 +3,40 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Evan Music Lab · 随机节奏练习</title>
+  <title>Evan Music Lab</title>
 </head>
 <body>
-  <h1>随机节奏练习 —— 4/4 拍</h1>
-  <p class="hint">音高固定为 C4 或休止符。节奏按「一拍一个完整的节奏型」生成，八分/十六分按拍连梁，休止符规范合并，不跨小节中点。</p>
-  <div class="controls">
-    <label for="input-measures">小节数</label>
-    <input id="input-measures" type="number" min="1" max="16" value="4">
-    <label for="input-strong">
-      <input type="checkbox" id="input-strong"> 强化重拍
-    </label>
-    <label for="input-sync">
-      <input type="checkbox" id="input-sync"> 切分节奏
-    </label>
-    <label for="input-dot">
-      <input type="checkbox" id="input-dot"> 附点节奏
-    </label>
-    <button id="btn-generate">重新生成</button>
-  </div>
-  <div id="output"></div>
+  <nav class="tabs">
+    <button class="tab active" data-module="rhythm">随机节奏</button>
+    <button class="tab" data-module="fretboard">指板音记忆</button>
+  </nav>
+
+  <section id="module-rhythm" class="module active">
+    <h1>随机节奏练习 —— 4/4 拍</h1>
+    <p class="hint">音高固定为 C4 或休止符。节奏按「一拍一个完整的节奏型」生成，八分/十六分按拍连梁，休止符规范合并，不跨小节中点。</p>
+    <div class="controls">
+      <label for="input-measures">小节数</label>
+      <input id="input-measures" type="number" min="1" max="16" value="4">
+      <label for="input-strong">
+        <input type="checkbox" id="input-strong"> 强化重拍
+      </label>
+      <label for="input-sync">
+        <input type="checkbox" id="input-sync"> 切分节奏
+      </label>
+      <label for="input-dot">
+        <input type="checkbox" id="input-dot"> 附点节奏
+      </label>
+      <button id="btn-generate">重新生成</button>
+    </div>
+    <div id="output"></div>
+  </section>
+
+  <section id="module-fretboard" class="module">
+    <h1>指板音记忆</h1>
+    <p class="hint">把「音名 ↔ 指板位置」双向记牢。点亮的音位认得出、给一个音名能整板找齐。含 #/b，八度关系帮你建指板地图。</p>
+    <div id="fb-root"></div>
+  </section>
+
   <script type="module" src="./src/main.ts"></script>
 </body>
 </html>
