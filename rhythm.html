@@ -283,18 +283,26 @@
       const rowWidths = [];
       let row = [], rowW = 0;
       prepped.forEach(p => {
-        const isFirstInRow = row.length === 0;
-        const w = Math.max(MIN_WIDTH, p.minW + (isFirstInRow ? CLEF_SPACE : 0) + GAP);
-        if (rowW + w > ROW_TARGET - ROW_MARGIN && row.length > 0) {
-          rows.push(row); rowWidths.push(rowW); row = [p]; rowW = w; p._row = rows.length;
-        } else {
+        if (row.length === 0) {
+          // 本小节是行首 → 谱号/拍号占位要算进宽度（否则行宽被低估、右缘会被裁）
+          const w = Math.max(MIN_WIDTH, p.minW + CLEF_SPACE + GAP);
           row.push(p); rowW += w; p._row = rows.length;
+        } else {
+          const wNon = Math.max(MIN_WIDTH, p.minW + GAP);
+          if (rowW + wNon > ROW_TARGET - ROW_MARGIN) {
+            // 放不下 → 换行；该小节成为新行首（含谱号占位宽度）
+            rows.push(row); rowWidths.push(rowW);
+            const w = Math.max(MIN_WIDTH, p.minW + CLEF_SPACE + GAP);
+            row = [p]; rowW = w; p._row = rows.length;
+          } else {
+            row.push(p); rowW += wNon; p._row = rows.length;
+          }
         }
       });
       if (row.length) { rows.push(row); rowWidths.push(rowW); }
 
-      // 画布宽度自适应内容：取最长一行的实际宽度（不再固定 960，避免靠右被裁）
-      const svgW = Math.max(0, ...rowWidths);
+      // 画布宽度自适应内容：取最长一行的实际宽度 + 行末边距（避免右缘被裁/贴边）
+      const svgW = Math.max(0, ...rowWidths) + ROW_MARGIN;
       const HEIGHT = rows.length * ROW_HEIGHT + 20;
       renderer.resize(svgW, HEIGHT);
       const ctx = renderer.getContext();
