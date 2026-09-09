@@ -38,6 +38,16 @@ body {
   box-sizing: border-box;
 }
 
+/* 节奏记谱：让 SVG 等比缩放到容器宽度，任何屏幕都不溢出/不裁剪 */
+.notation-box {
+  overflow: hidden;
+}
+.notation-box svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
 /* ── 指板音记忆模块 ── */
 .fb-controls {
   display: flex;

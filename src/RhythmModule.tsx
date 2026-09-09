@@ -59,7 +59,7 @@ export default function RhythmModule() {
         </button>
       </div>
 
-      <div ref={outputRef} className="inline-block mt-2 bg-white border border-pink-100 rounded-xl p-4" />
+      <div ref={outputRef} className="notation-box mt-2 w-full bg-white border border-pink-100 rounded-xl p-4" />
     </div>
   );
 }
