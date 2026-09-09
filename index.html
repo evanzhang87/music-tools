@@ -84,6 +84,12 @@
     <label style="font-size:14px;color:#555;display:flex;align-items:center;gap:4px;cursor:pointer;">
       <input type="checkbox" id="input-strong"> 强化重拍
     </label>
+    <label style="font-size:14px;color:#555;display:flex;align-items:center;gap:4px;cursor:pointer;">
+      <input type="checkbox" id="input-sync"> 切分节奏
+    </label>
+    <label style="font-size:14px;color:#555;display:flex;align-items:center;gap:4px;cursor:pointer;">
+      <input type="checkbox" id="input-dot"> 附点节奏
+    </label>
     <button id="btn-generate">重新生成</button>
   </div>
   <div id="output"></div>
@@ -107,11 +113,15 @@
     const NOTE_CELLS = [
       { weight: 5, items: [{ dur: 'q' }] },                          // 四分音符（整拍）
       { weight: 6, items: [{ dur: '8' }, { dur: '8' }] },            // 两个八分（“动-动”）
-      { weight: 3, items: [{ dur: '8', dots: 1 }, { dur: '16' }] },  // 附点八分 + 十六分
-      { weight: 3, items: [{ dur: '16' }, { dur: '8', dots: 1 }] },  // 十六分 + 附点八分
       { weight: 2, items: [{ dur: '16' }, { dur: '16' }, { dur: '16' }, { dur: '16' }] }, // 四个十六分
-      { weight: 3, items: [{ dur: '8' }, { dur: '16' }, { dur: '16' }] },  // 八分 + 两个十六分
-      { weight: 3, items: [{ dur: '16' }, { dur: '16' }, { dur: '8' }] },  // 两个十六分 + 八分
+      { weight: 3, items: [{ dur: '8' }, { dur: '16' }, { dur: '16' }] },  // 后十六：八分 + 两个十六分
+      { weight: 3, items: [{ dur: '16' }, { dur: '16' }, { dur: '8' }] },  // 前十六：两个十六分 + 八分
+    ];
+
+    // 「附点」节奏型（独立开关）：默认不含，附点开关开启才加入
+    const DOT_CELLS = [
+      { weight: 3, items: [{ dur: '8', dots: 1 }, { dur: '16' }] },  // 小附点：附点八分 + 十六分
+      { weight: 3, items: [{ dur: '16' }, { dur: '8', dots: 1 }] },  // 反附点：十六分 + 附点八分
     ];
 
     const REST_CELLS = [
@@ -147,6 +157,17 @@
       return STRONG_FIRST.includes(first.dur.replace(/r$/, ''));
     };
 
+    // 「切分节奏」开关：打开时才加入切分型。
+    let SYNC = false;
+    const SYNC_BIG_PROB = 0.3;   // 每小节出现大切分(2拍)的概率
+    // 小切分(1拍)：♬♪♬ = 十六分+八分+十六分（中间八分=两端之和 → 切分）
+    const SYNC_CELLS = [
+      { weight: 2, items: [{ dur: '16' }, { dur: '8' }, { dur: '16' }] },
+    ];
+
+    // 「附点」开关：打开时才加入附点节奏型。
+    let DOT = false;
+
     // 生成一拍，并考虑上一拍结尾的休止情况，保证【半拍休止永不与其它休止相邻】。
     // prevSubRest：上一拍以半拍休止结尾；prevEndsRest：上一拍以任意休止结尾。
     function generateBeat(prevSubRest, prevEndsRest, strong) {
@@ -155,6 +176,18 @@
         // 强化重拍：强拍只用「以强音开头」的节奏型（四分/八分起拍），不用十六分起拍等弱起
         if (REINFORCE_STRONG && strong && !isStrongStart(c)) continue;
         pool.push({ ...c, kind: 'n' });
+      }
+      // 附点开关：把附点节奏型加入音符池（附点八分以八分起拍，属强拍可；强化重拍开启时仍可上强拍）
+      if (DOT) {
+        for (const c of DOT_CELLS) pool.push({ ...c, kind: 'n' });
+      }
+      // 切分开关：把小切分(16-8-16)加入音符池（以十六分起拍，属弱起；
+      // 若强化重拍开启，强拍仍会因 isStrongStart=false 被过滤）
+      if (SYNC) {
+        for (const c of SYNC_CELLS) {
+          if (REINFORCE_STRONG && strong && !isStrongStart(c)) continue;
+          pool.push({ ...c, kind: 'n' });
+        }
       }
       for (const c of REST_CELLS) {
         if (REINFORCE_STRONG && strong) continue; // 强化重拍：强拍不填休止，保住重音
@@ -186,19 +219,37 @@
       const beats = []; // 每拍的事件序列（beats[b] 单位数恒为 4）
       let prevSubRest = false, prevEndsRest = false;
 
-      for (let b = 0; b < 4; b++) {
+      let usedBig = false;
+      for (let b = 0; b < 4; ) {
         const strong = (b === 0 || b === 2); // 4/4：第1拍=强拍、第3拍=次强拍
-        const beatItems = generateBeat(prevSubRest, prevEndsRest, strong);
-        beats.push(beatItems);
-        const last = beatItems[beatItems.length - 1];
-        prevSubRest  = isRestItem(last) && last.dur !== 'qr';
-        prevEndsRest = isRestItem(last);
+        // 大切分(2拍)：♪♩♪ = 八分+四分+八分，跨强拍。仅切分开关开启、且每小节至多一次。
+        if (SYNC && !usedBig && (b === 0 || b === 2) && b <= 2 && Math.random() < SYNC_BIG_PROB) {
+          beats.push({ big: true });
+          beats.push(null);            // 第 b+1 拍被大切分占用
+          usedBig = true;
+          prevSubRest = false; prevEndsRest = false; // 大切分以音符结尾，无休止冲突
+          b += 2;
+        } else {
+          const beatItems = generateBeat(prevSubRest, prevEndsRest, strong);
+          beats.push(beatItems);
+          const last = beatItems[beatItems.length - 1];
+          prevSubRest  = isRestItem(last) && last.dur !== 'qr';
+          prevEndsRest = isRestItem(last);
+          b += 1;
+        }
       }
 
       let i = 0;
       while (i < 4) {
         const beatItems = beats[i];
-        if (isFullRestItems(beatItems)) {
+        if (beatItems == null) { i++; continue; }   // 大切分占用的第二拍
+        if (beatItems.big) {
+          // 大切分 ♪♩♪：两端八分各带符尾(规范写法、不连梁)，中间四分。总 2 拍。
+          items.push({ dur: '8' });
+          items.push({ dur: 'q' });
+          items.push({ dur: '8' });
+          i += 2;                                    // 已占用第 i、i+1 拍
+        } else if (isFullRestItems(beatItems)) {
           let j = i;
           while (j < 4 && isFullRestItems(beats[j])) j++;
           let start = i;
@@ -235,6 +286,8 @@
 
       const NUM_MEASURES = Math.min(16, Math.max(1, parseInt(document.getElementById('input-measures').value, 10) || 4));
       REINFORCE_STRONG = !!(document.getElementById('input-strong') && document.getElementById('input-strong').checked);
+      SYNC = !!(document.getElementById('input-sync') && document.getElementById('input-sync').checked);
+      DOT = !!(document.getElementById('input-dot') && document.getElementById('input-dot').checked);
       const STAVE_Y      = 30;
       const ROW_HEIGHT   = 130;
       const ROW_TARGET   = 1200;  // 每行最大宽度（放宽，让密集小节有空间）；超过则换行
