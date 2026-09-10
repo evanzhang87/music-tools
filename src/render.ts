@@ -22,7 +22,7 @@ interface Prepped extends Measure {
   _clefW: number;
 }
 
-export function render(container: HTMLDivElement, numMeasures: number): void {
+export function render(container: HTMLDivElement, numMeasures: number, num: number, den: number): void {
   container.innerHTML = '';
 
   const renderer = new Renderer(container, Renderer.Backends.SVG);
@@ -51,7 +51,7 @@ export function render(container: HTMLDivElement, numMeasures: number): void {
       if (it.dots) Dot.buildAndAttach([note], { all: true });
       return note;
     });
-    const voice = new Voice({ num_beats: 4, beat_value: 4 } as any);
+    const voice = new Voice({ numBeats: num, beatValue: den });
     voice.addTickables(notes);
     const formatter = new Formatter().joinVoices([voice]);
     let minW = 0;
@@ -100,7 +100,7 @@ export function render(container: HTMLDivElement, numMeasures: number): void {
 
       const stave = new Stave(curX, curY, staveWidth);
       if (idx === 0 && p._row === 0) {
-        stave.addClef('treble').addTimeSignature('4/4'); // 只有第一行有谱号+拍号
+        stave.addClef('treble').addTimeSignature(`${num}/${den}`); // 只有第一行有谱号+拍号
       }
       if (isLast) stave.setEndBarType(Barline.type.END);
       stave.setMeasure(p._mi); // 每小节上方画小节号

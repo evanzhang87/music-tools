@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { render } from './render';
-import { setFlags } from './rhythm';
+import { setFlags, setMeter } from './rhythm';
+
+const METERS = ['4/4', '2/4', '3/4', '5/4', '6/4', '7/4', '3/8', '6/8', '9/8', '12/8'];
 
 export default function RhythmModule() {
   const [num, setNum] = useState(4);
+  const [meter, setMeterSel] = useState('4/4');
   const [strong, setStrong] = useState(false);
   const [sync, setSync] = useState(false);
   const [dot, setDot] = useState(false);
   const outputRef = useRef<HTMLDivElement>(null);
 
   function generate(): void {
+    const [mn, md] = meter.split('/').map(Number);
+    setMeter(mn, md);
     setFlags({ reinforce: strong, sync, dot });
-    if (outputRef.current) render(outputRef.current, num);
+    if (outputRef.current) render(outputRef.current, num, mn, md);
   }
 
   // 首次挂载渲染一次
@@ -24,10 +29,22 @@ export default function RhythmModule() {
     <div className="card p-6">
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">随机节奏练习</h1>
       <p className="text-slate-500 text-sm mb-6">
-        音高固定为 C4 或休止符，按「一拍一个节奏型」生成，八分/十六分按拍连梁，休止符规范合并，不跨小节中点。
+        音高固定为 C4 或休止符，按「一拍一个节奏型」生成，八分/十六分按拍连梁，休止符规范合并，不跨小节分组中点。
       </p>
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3 mb-5">
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          拍号
+          <select
+            value={meter}
+            onChange={(e) => setMeterSel(e.target.value)}
+            className="px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-700 outline-none focus:border-pink-400 cursor-pointer"
+          >
+            {METERS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </label>
         <label className="flex items-center gap-2 text-sm text-slate-600">
           小节数
           <input
