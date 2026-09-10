@@ -35,14 +35,14 @@ export default function RhythmModule() {
     setPlaying(false);
   }
 
-  function togglePlay(): void {
+  async function togglePlay(): Promise<void> {
     if (playing) { stop(); return; }
     const data = dataRef.current;
     if (!data) return;
     const [mn, md] = meter.split('/').map(Number);
     // 延音连入的音（一拍跨小节延音）不再新起「哒」
     const tieTargets = new Set(data.crossTies.map((t) => `${t.m + 1}-${t.firstIdx}`));
-    const dur = playRhythm({
+    const dur = await playRhythm({
       measures: data.measures,
       tieTargets,
       num: mn,
