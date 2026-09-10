@@ -22,7 +22,12 @@ interface Prepped extends Measure {
   _clefW: number;
 }
 
-export function render(container: HTMLDivElement, numMeasures: number, num: number, den: number): void {
+export interface RenderData {
+  measures: Measure[];
+  crossTies: Array<{ m: number; lastIdx: number; firstIdx: number }>;
+}
+
+export function render(container: HTMLDivElement, numMeasures: number, num: number, den: number): RenderData {
   container.innerHTML = '';
 
   const renderer = new Renderer(container, Renderer.Backends.SVG);
@@ -133,4 +138,6 @@ export function render(container: HTMLDivElement, numMeasures: number, num: numb
         lastIndices: [0],
       } as any).setContext(ctx).draw();
     });
+
+  return { measures, crossTies };
 }
